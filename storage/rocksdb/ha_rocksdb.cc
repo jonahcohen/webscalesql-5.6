@@ -201,6 +201,11 @@ static MYSQL_THDVAR_ULONG(bulk_load_size, PLUGIN_VAR_RQCMDARG,
 static long long rocksdb_block_cache_size;
 static long long rocksdb_write_buffer_size;
 static int rocksdb_target_file_size_base;
+static unsigned long rocksdb_compaction_style;
+static unsigned long rocksdb_compression_type;
+static int rocksdb_compression_window_bits;
+static int rocksdb_compression_level;
+static int rocksdb_compression_strategy;
 
 static MYSQL_SYSVAR_LONGLONG(block_cache_size, rocksdb_block_cache_size,
   PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
@@ -221,6 +226,51 @@ static MYSQL_SYSVAR_INT(target_file_size_base,
   NULL, NULL, /* RocksDB's default is 2 MB: */ 2*1024*1024L,
   /* min */ 1024L, /* max */ INT_MAX, /* Block size */1024L);
 
+static MYSQL_SYSVAR_ULONG(compaction_style, rocksdb_compaction_style,
+  PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
+  "options.compaction_style for RocksDB",
+  NULL, NULL,
+  /*default*/ rocksdb::CompactionStyle::kCompactionStyleLevel,
+  /*min*/ rocksdb::CompactionStyle::kCompactionStyleLevel,
+  /*max*/ rocksdb::CompactionStyle::kCompactionStyleFIFO,
+  0);
+
+static MYSQL_SYSVAR_ULONG(compression_type, rocksdb_compression_type,
+  PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
+  "options.compression_type for RocksDB",
+  NULL, NULL,
+  /*default*/ rocksdb::CompressionType::kZlibCompression,
+  /*min*/ rocksdb::CompressionType::kNoCompression,
+  /*max*/ rocksdb::CompressionType::kLZ4HCCompression,
+  0);
+
+static MYSQL_SYSVAR_INT(compression_window_bits, rocksdb_compression_window_bits,
+  PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
+  "options.compression_options.window_bits for RocksDB",
+  NULL, NULL,
+  /*default*/ -14,
+  /*min*/ INT_MIN,
+  /*max*/ INT_MAX,
+  0);
+
+static MYSQL_SYSVAR_INT(compression_level, rocksdb_compression_level,
+  PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
+  "options.compression_options.level for RocksDB",
+  NULL, NULL,
+  /*default*/ -1,
+  /*min*/ INT_MIN,
+  /*max*/ INT_MAX,
+  0);
+
+static MYSQL_SYSVAR_INT(compression_strategy, rocksdb_compression_strategy,
+  PLUGIN_VAR_RQCMDARG | PLUGIN_VAR_READONLY,
+  "options.compression_options.strategy for RocksDB",
+  NULL, NULL,
+  /*default*/ 0,
+  /*min*/ INT_MIN,
+  /*max*/ INT_MAX,
+  0);
+
 static struct st_mysql_sys_var* rocksdb_system_variables[]= {
   MYSQL_SYSVAR(lock_wait_timeout),
   MYSQL_SYSVAR(max_row_locks),
@@ -230,6 +280,11 @@ static struct st_mysql_sys_var* rocksdb_system_variables[]= {
   MYSQL_SYSVAR(block_cache_size),
   MYSQL_SYSVAR(write_buffer_size),
   MYSQL_SYSVAR(target_file_size_base),
+  MYSQL_SYSVAR(compaction_style),
+  MYSQL_SYSVAR(compression_type),
+  MYSQL_SYSVAR(compression_window_bits),
+  MYSQL_SYSVAR(compression_level),
+  MYSQL_SYSVAR(compression_strategy),
 
   NULL
 };
@@ -699,6 +754,11 @@ static int rocksdb_init_func(void *p)
   default_cf_opts.comparator= &primary_key_comparator;
   default_cf_opts.write_buffer_size= rocksdb_write_buffer_size;
   default_cf_opts.target_file_size_base= rocksdb_target_file_size_base;
+  main_opts.compaction_style = (rocksdb::CompactionStyle)rocksdb_compaction_style;
+  main_opts.compression = (rocksdb::CompressionType)rocksdb_compression_type;
+  main_opts.compression_opts.window_bits = rocksdb_compression_window_bits;
+  main_opts.compression_opts.level = rocksdb_compression_level;
+  main_opts.compression_opts.strategy = rocksdb_compression_strategy;
 
   rocksdb::BlockBasedTableOptions table_options;
   table_options.block_cache = rocksdb::NewLRUCache(rocksdb_block_cache_size);
