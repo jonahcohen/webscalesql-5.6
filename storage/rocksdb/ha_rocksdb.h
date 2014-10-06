@@ -307,6 +307,7 @@ public:
   int delete_all_rows(void);
   int truncate();
 
+  int check(THD* thd, HA_CHECK_OPT* check_opt);
   void remove_rows(RDBSE_TABLE_DEF *tbl);
   ha_rows records_in_range(uint inx, key_range *min_key,
                            key_range *max_key);

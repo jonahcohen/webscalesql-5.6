@@ -1627,6 +1627,111 @@ int ha_rocksdb::index_read_last_map(uchar * buf, const uchar * key,
 }
 
 
+int
+ha_rocksdb::check(THD* thd, HA_CHECK_OPT* check_opt)
+{
+  uint pk= table->s->primary_key;
+  String rowkey_copy;
+  String sec_key_copy;
+  // For each secondary index,
+  // check that we can get a PK value from it
+  sql_print_information("Checking table %s", table->s->table_name.str);
+  for (uint keyno= 0; keyno < table->s->keys; keyno++)
+  {
+    if (keyno != pk)
+    {
+      extra(HA_EXTRA_KEYREAD);
+      ha_index_init(keyno, true);
+      ha_rows rows= 0;
+      int res;
+      sql_print_information("  Checking index %s", table->key_info[keyno].name);
+      while (1)
+      {
+        if (!rows)
+          res= index_first(table->record[0]);
+        else 
+          res= index_next(table->record[0]);
+
+        if (res == HA_ERR_END_OF_FILE)
+          break;
+        if (res)
+        {
+          // error
+          sql_print_error("  .. row %lld: index scan error %d", rows, res);
+          goto error;
+        }
+        rocksdb::Slice key= scan_it->key();
+        sec_key_copy.copy(key.data(), key.size(), &my_charset_bin);
+        rowkey_copy.copy(last_rowkey.ptr(), last_rowkey.length(), 
+                         &my_charset_bin);
+        if ((res= get_row_by_rowid(table->record[0], rowkey_copy.ptr(),
+                                   rowkey_copy.length())))
+        {
+          sql_print_error("  .. row %lld: failed to fetch row by rowid", rows);
+          goto error;
+        }
+        /* Check if we get the same PK value */
+        uint packed_size= pk_descr->pack_record(table, table->record[0], 
+                                                pk_packed_tuple, NULL, NULL);
+        if (packed_size != rowkey_copy.length() ||
+            memcmp(pk_packed_tuple, rowkey_copy.ptr(), packed_size))
+        {
+          sql_print_error("  .. row %lld: PK value mismatch", rows);
+          goto error;
+        }
+
+        /* Check if we get the same secondary key value */
+        int tail_size;
+        packed_size= key_descr[keyno]->pack_record(table, table->record[0], 
+                                                   sec_key_packed_tuple,
+                                                   sec_key_tails, &tail_size);
+        if (packed_size != sec_key_copy.length() || 
+            memcmp(sec_key_packed_tuple, sec_key_copy.ptr(), packed_size))
+        {
+          sql_print_error("  .. row %lld: secondary index value mismatch", rows);
+          goto error;
+        }
+        rows++;
+      }
+      sql_print_information("  ... %lld records found", rows);
+      ha_index_end();
+    }
+  }
+
+  // For the primary key 
+  // Check if we can reach this PK from each secondary index
+#if 0
+  {
+    sql_print_information("  Checking primary key");
+    ha_index_init(pk, true);
+    ha_rows rows= 0;
+    while (1)
+    {
+      if (!rows)
+        res= index_first(table->record[0]);
+      else 
+        res= index_next(table->record[0]);
+
+      if (res == HA_ERR_END_OF_FILE)
+        break;
+      if (res)
+      {
+        // error
+        goto error;
+      }
+      rows++;
+    }
+    ha_index_end();
+  }
+#endif
+  return HA_ADMIN_OK;
+error:
+  ha_index_or_rnd_end();
+  extra(HA_EXTRA_NO_KEYREAD);
+  return HA_ADMIN_CORRUPT;
+}
+
+
 static void dbug_dump_str(FILE *out, const char *str, int len)
 {
   fprintf(out, "\"");
