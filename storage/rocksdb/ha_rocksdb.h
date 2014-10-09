@@ -111,6 +111,12 @@ class ha_rocksdb: public handler
 
   uchar *sec_key_packed_tuple;
   uchar *sec_key_tails;
+  
+  /*
+    Temporary space for packing VARCHARs (we provide it to
+    pack_record()/pack_index_tuple() calls).
+  */
+  uchar *pack_buffer;
  
   /* rowkey of the last record we've read, in StorageFormat. */
   String last_rowkey; 
@@ -118,7 +124,13 @@ class ha_rocksdb: public handler
   /* Buffer used by convert_record_to_storage_format() */
   String storage_record;
 
-  /* Last retrieved record, in table->record[0] data format */
+  /*
+    Last retrieved record, in table->record[0] data format. It also serves as
+    as storage for blob data (Field_blob object have pointers to here)
+
+    TODO: Dont we lose one malloc() per record read by having it as std::string
+    instead of rocksdb::Slice?
+  */
   std::string retrieved_record;
   
   /* If TRUE, reads should place locks on rows */
@@ -205,7 +217,7 @@ public:
         If we don't set it, filesort crashes, because it assumes rowids are 
         1..8 byte numbers 
     */
-    return HA_BINLOG_ROW_CAPABLE |
+    return HA_BINLOG_ROW_CAPABLE | HA_BINLOG_STMT_CAPABLE |
            HA_REC_NOT_IN_SEQ |
            HA_REQUIRE_PRIMARY_KEY |
            (pk_can_be_decoded? HA_PRIMARY_KEY_IN_READ_INDEX:0) |
@@ -307,6 +319,14 @@ public:
   int delete_all_rows(void);
   int truncate();
 
+  int reset()
+  {
+    /* Free blob data */
+    retrieved_record.clear();
+    return 0;
+  }
+
+  int check(THD* thd, HA_CHECK_OPT* check_opt);
   void remove_rows(RDBSE_TABLE_DEF *tbl);
   ha_rows records_in_range(uint inx, key_range *min_key,
                            key_range *max_key);
