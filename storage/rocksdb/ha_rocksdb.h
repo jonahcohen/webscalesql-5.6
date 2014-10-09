@@ -134,6 +134,12 @@ class ha_rocksdb: public handler
 
   uchar *sec_key_packed_tuple;
   uchar *sec_key_tails;
+  
+  /*
+    Temporary space for packing VARCHARs (we provide it to
+    pack_record()/pack_index_tuple() calls).
+  */
+  uchar *pack_buffer;
  
   /* rowkey of the last record we've read, in StorageFormat. */
   String last_rowkey; 
@@ -344,6 +350,7 @@ public:
     return 0;
   }
 
+  int check(THD* thd, HA_CHECK_OPT* check_opt);
   void remove_rows(RDBSE_TABLE_DEF *tbl);
   ha_rows records_in_range(uint inx, key_range *min_key,
                            key_range *max_key);
